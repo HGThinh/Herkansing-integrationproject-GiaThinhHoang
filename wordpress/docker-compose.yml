@@ -1,4 +1,4 @@
-version: "3" 
+version: "3"
 # Defines which compose version to use
 services:
   # Services line define which Docker images to run. In this case, it will be MySQL server and WordPress image.
@@ -11,7 +11,23 @@ services:
       MYSQL_DATABASE: MyWordPressDatabaseName
       MYSQL_USER: MyWordPressUser
       MYSQL_PASSWORD: Pa$$5w0rD
-      # Previous four lines define the main variables needed for the MySQL container to work: database, database username, database user password, and the MySQL root password.
+    ports:
+      - "3306:3306"
+      # This line maps port 3306 on the container to port 3306 on the host machine.
+    volumes:
+      - mysql:/var/lib/mysql
+      # This line ensures that the MySQL data persists in a Docker volume. 
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    restart: always
+    environment: 
+      PMA_HOST: db
+      PMA_USER: MyWordPressUser
+      PMA_PASSWORD: Pa$$5w0rD
+    ports:
+      - "8080:80"
+
   wordpress:
     depends_on:
       - db
@@ -26,8 +42,9 @@ services:
       WORDPRESS_DB_USER: MyWordPressUser
       WORDPRESS_DB_PASSWORD: Pa$$5w0rD
       WORDPRESS_DB_NAME: MyWordPressDatabaseName
-# Similar to MySQL image variables, the last four lines define the main variables needed for the WordPress container to work properly with the MySQL container.
     volumes:
-      ["./:/var/www/html"]
+      - ./:/var/www/html
+
 volumes:
   mysql: {}
+
