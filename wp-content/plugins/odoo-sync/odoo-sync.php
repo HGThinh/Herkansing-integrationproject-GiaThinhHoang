@@ -21,7 +21,7 @@ function odoo_sync_register_custom_post_type() {
 }
 add_action('init', 'odoo_sync_register_custom_post_type');
 
-// Voeg de klantenlijstpagina toe aan het admin menu
+// Voeg de klantenlijstpagina en klant toevoegen/bewerken pagina toe aan het admin menu
 function odoo_sync_add_admin_menu() {
     add_menu_page(
         'Klanten Overzicht',
@@ -31,6 +31,15 @@ function odoo_sync_add_admin_menu() {
         'odoo_sync_klanten_overzicht_page',
         'dashicons-id-alt',
         20
+    );
+
+    add_submenu_page(
+        'odoo-sync-klanten-overzicht',
+        'Klant Toevoegen/Bewerken',
+        'Klant Toevoegen',
+        'manage_options',
+        'odoo-sync-klant-toevoegen',
+        'odoo_sync_klant_toevoegen_page'
     );
 }
 add_action('admin_menu', 'odoo_sync_add_admin_menu');
@@ -61,9 +70,50 @@ function odoo_sync_klanten_overzicht_page() {
     echo '</tbody></table></div>';
 }
 
-// Klant toevoegen/bewerken/verwijderen pagina
+// Formulier voor klant toevoegen/bewerken
 function odoo_sync_klant_toevoegen_page() {
-    // Hier komt het formulier en de verwerking van het toevoegen van een klant
+    $klant_id = isset($_GET['klant_id']) ? intval($_GET['klant_id']) : 0;
+    $klant = get_post($klant_id);
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $klant_data = array(
+            'post_title' => sanitize_text_field($_POST['klant_naam']),
+            'post_content' => sanitize_textarea_field($_POST['klant_omschrijving']),
+            'post_type' => 'klant',
+            'post_status' => 'publish',
+        );
+
+        if ($klant_id > 0) {
+            $klant_data['ID'] = $klant_id;
+            wp_update_post($klant_data);
+        } else {
+            $klant_id = wp_insert_post($klant_data);
+        }
+
+        // Synchroniseer met Odoo
+        odoo_sync_with_odoo($klant_id, (object) $klant_data, true);
+        
+        echo '<div class="notice notice-success is-dismissible"><p>Klant succesvol opgeslagen en gesynchroniseerd met Odoo.</p></div>';
+    }
+
+    ?>
+    <div class="wrap">
+        <h1><?php echo $klant_id > 0 ? 'Klant Bewerken' : 'Klant Toevoegen'; ?></h1>
+        <form method="post">
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="klant_naam">Naam</label></th>
+                    <td><input name="klant_naam" type="text" id="klant_naam" value="<?php echo esc_attr($klant ? $klant->post_title : ''); ?>" class="regular-text" required></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="klant_omschrijving">Omschrijving</label></th>
+                    <td><textarea name="klant_omschrijving" id="klant_omschrijving" class="large-text" rows="5" required><?php echo esc_textarea($klant ? $klant->post_content : ''); ?></textarea></td>
+                </tr>
+            </table>
+            <p class="submit"><button type="submit" class="button-primary"><?php echo $klant_id > 0 ? 'Klant Bewerken' : 'Klant Toevoegen'; ?></button></p>
+        </form>
+    </div>
+    <?php
 }
 
 // Synchroniseer klantdata met Odoo via API
@@ -72,7 +122,7 @@ function odoo_sync_with_odoo($post_id, $post, $update) {
         return;
     }
 
-    $odoo_url = ''; //Odoo API URL
+    $odoo_url = ''; // Odoo API URL
     $api_key = ''; // Odoo API-sleutel
 
     $klant_data = array(
@@ -97,3 +147,70 @@ function odoo_sync_with_odoo($post_id, $post, $update) {
     }
 }
 add_action('save_post', 'odoo_sync_with_odoo', 10, 3);
+
+// Haal klantdata op vanuit Odoo en werk WordPress bij
+function odoo_fetch_from_odoo() {
+    $odoo_url = ''; // Odoo API URL
+    $api_key = ''; // Odoo API key
+
+    $response = wp_remote_get($odoo_url, array(
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type' => 'application/json',
+        ),
+    ));
+
+    if (is_wp_error($response)) {
+        error_log('Error fetching from Odoo: ' . $response->get_error_message());
+        return;
+    }
+
+    $odoo_customers = json_decode(wp_remote_retrieve_body($response), true);
+
+    foreach ($odoo_customers as $odoo_customer) {
+        $existing_post = get_posts(array(
+            'post_type' => 'klant',
+            'meta_key' => '_odoo_id',
+            'meta_value' => $odoo_customer['id'],
+            'numberposts' => 1,
+        ));
+
+        $klant_data = array(
+            'post_title' => sanitize_text_field($odoo_customer['name']),
+            'post_content' => sanitize_textarea_field($odoo_customer['description']),
+            'post_type' => 'klant',
+            'post_status' => 'publish',
+        );
+
+        if ($existing_post) {
+            $klant_data['ID'] = $existing_post[0]->ID;
+            wp_update_post($klant_data);
+        } else {
+            $klant_id = wp_insert_post($klant_data);
+            update_post_meta($klant_id, '_odoo_id', $odoo_customer['id']);
+        }
+    }
+}
+
+// Eventueel: webhook listener voor real-time updates van Odoo
+function odoo_webhook_listener() {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        return;
+    }
+
+    $payload = json_decode(file_get_contents('php://input'), true);
+
+    // Verwerk de payload en werk de klantdata bij in WordPress
+
+    http_response_code(200);
+    exit;
+}
+
+add_action('rest_api_init', function () {
+    register_rest_route('odoo-sync/v1', '/webhook', array(
+        'methods' => 'POST',
+        'callback' => 'odoo_webhook_listener',
+    ));
+});
+
+
