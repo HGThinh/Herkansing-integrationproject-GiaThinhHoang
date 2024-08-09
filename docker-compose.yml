@@ -34,8 +34,13 @@ services:
       - HOST=postgres
       - USER=odoo
       - PASSWORD=Odoo
+      - ODOO_RABBITMQ_HOST=rabbitmq
+      - ODOO_RABBITMQ_PORT=5672
+      - ODOO_RABBITMQ_USER=guest
+      - ODOO_RABBITMQ_PASSWORD=guest
     depends_on:
       - postgres
+      - rabbitmq
     restart: always
 
   postgres:
@@ -80,3 +85,4 @@ services:
 volumes:
   postgres_data: {}
   mysql: {}
+
