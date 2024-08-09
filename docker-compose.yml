@@ -1,0 +1,82 @@
+version: "3"
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13.6-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    restart: always
+
+  wordpress:
+    image: wordpress:6.6.1
+    ports:
+      - "8000:80"
+    environment:
+      - WORDPRESS_DB_HOST=db:3306
+      - WORDPRESS_DB_USER=MyWordPressUser
+      - WORDPRESS_DB_PASSWORD=Pa$$5w0rD
+      - WORDPRESS_DB_NAME=MyWordPressDatabaseName
+    depends_on:
+      - db
+    volumes:
+      - ./:/var/www/html
+    restart: always
+
+  odoo:
+    image: odoo:17.0
+    ports:
+      - "8069:8069"
+    environment:
+      - HOST=postgres
+      - USER=odoo
+      - PASSWORD=Odoo
+    depends_on:
+      - postgres
+    restart: always
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=Odoo
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: postgres -c listen_addresses='*'
+    restart: always
+
+  db:
+    image: mysql:5.7
+    environment:
+      - MYSQL_ROOT_PASSWORD=MyR00tMySQLPa$$5w0rD
+      - MYSQL_DATABASE=MyWordPressDatabaseName
+      - MYSQL_USER=MyWordPressUser
+      - MYSQL_PASSWORD=Pa$$5w0rD
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql:/var/lib/mysql
+    restart: always
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=db
+      - PMA_USER=MyWordPressUser
+      - PMA_PASSWORD=Pa$$5w0rD
+    depends_on:
+      - db
+    restart: always
+
+volumes:
+  postgres_data: {}
+  mysql: {}
