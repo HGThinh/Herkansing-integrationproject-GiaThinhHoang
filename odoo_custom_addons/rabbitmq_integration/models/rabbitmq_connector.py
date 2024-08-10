@@ -1,52 +1,46 @@
+import os
 import pika
-from odoo import api, fields, models, _
+from odoo import models, api
 
-class RabbitMQConnector(models.Model):
+class RabbitMQConnector(models.AbstractModel):
     _name = 'rabbitmq.connector'
     _description = 'RabbitMQ Connector'
 
-    name = fields.Char(string='Name', required=True)
-    queue_name = fields.Char(string='Queue Name', required=True)
-    message = fields.Text(string='Message')
+    DEFAULT_QUEUE = 'odoo_to_wp'
 
-    def send_message(self):
-        # Define RabbitMQ connection parameters
-        connection_params = pika.ConnectionParameters(host='rabbitmq')
-        
-        # Establish connection to RabbitMQ
-        connection = pika.BlockingConnection(connection_params)
+    @api.model
+    def connect_to_rabbitmq(self):
+        host = os.environ.get('ODOO_RABBITMQ_HOST', 'localhost')
+        port = int(os.environ.get('ODOO_RABBITMQ_PORT', 5672))
+        user = os.environ.get('ODOO_RABBITMQ_USER', 'guest')
+        password = os.environ.get('ODOO_RABBITMQ_PASSWORD', 'guest')
+        credentials = pika.PlainCredentials(user, password)
+        parameters = pika.ConnectionParameters(host, port, '/', credentials)
+        connection = pika.BlockingConnection(parameters)
+        return connection
+
+    @api.model
+    def send_message(self, message, queue_name=None):
+        if queue_name is None:
+            queue_name = self.DEFAULT_QUEUE
+        connection = self.connect_to_rabbitmq()
         channel = connection.channel()
-
-        # Declare a queue
-        channel.queue_declare(queue=self.queue_name)
-
-        # Publish the message
-        channel.basic_publish(exchange='',
-                              routing_key=self.queue_name,
-                              body=self.message)
+        channel.queue_declare(queue=queue_name, durable=True)
+        channel.basic_publish(exchange='', routing_key=queue_name, body=message)
         connection.close()
 
-        return _('Message sent to RabbitMQ')
-
-    def receive_message(self):
-        # Define RabbitMQ connection parameters
-        connection_params = pika.ConnectionParameters(host='rabbitmq')
-        
-        # Establish connection to RabbitMQ
-        connection = pika.BlockingConnection(connection_params)
+    @api.model
+    def receive_message(self, queue_name=None):
+        if queue_name is None:
+            queue_name = self.DEFAULT_QUEUE
+        connection = self.connect_to_rabbitmq()
         channel = connection.channel()
-
-        # Declare a queue
-        channel.queue_declare(queue=self.queue_name)
-
-        # Callback function to handle messages
-        def callback(ch, method, properties, body):
-            print(f"Received {body}")
-
-        # Set up subscription on the queue
-        channel.basic_consume(queue=self.queue_name,
-                              on_message_callback=callback,
-                              auto_ack=True)
-
-        print('Waiting for messages. To exit press CTRL+C')
-        channel.start_consuming()
+        channel.queue_declare(queue=queue_name, durable=True)
+        method_frame, header_frame, body = channel.basic_get(queue=queue_name)
+        if method_frame:
+            channel.basic_ack(method_frame.delivery_tag)
+            connection.close()
+            return body.decode()
+        else:
+            connection.close()
+            return None
