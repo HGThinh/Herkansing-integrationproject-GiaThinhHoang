@@ -1,8 +1,8 @@
 {
-    'name': 'RabbitMQ Integration',
+    'name': 'RabbitMQ Connector',
     'version': '1.0',
     'category': 'Tools',
-    'summary': 'Integration with RabbitMQ',
+    'summary': 'Connect Odoo with RabbitMQ',
     'depends': ['base'],
     'data': [],
     'installable': True,

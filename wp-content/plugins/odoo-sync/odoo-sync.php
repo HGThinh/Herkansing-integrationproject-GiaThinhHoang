@@ -212,5 +212,3 @@ add_action('rest_api_init', function () {
         'callback' => 'odoo_webhook_listener',
     ));
 });
-
-

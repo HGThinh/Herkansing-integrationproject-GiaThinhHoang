@@ -6,5 +6,8 @@ USER root
 # Install pika Python package
 RUN pip install pika
 
+# Install requests Python package
+RUN pip install requests
+
 # Switch back to the odoo user
 USER odoo
