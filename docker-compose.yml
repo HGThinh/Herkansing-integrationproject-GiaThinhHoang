@@ -27,7 +27,7 @@ services:
     restart: always
 
   odoo:
-    image: odoo:17.0
+    build: .
     ports:
       - "8069:8069"
     environment:
@@ -41,6 +41,8 @@ services:
     depends_on:
       - postgres
       - rabbitmq
+    volumes:
+      - ./odoo_custom_addons:/mnt/extra-addons
     restart: always
 
   postgres:
