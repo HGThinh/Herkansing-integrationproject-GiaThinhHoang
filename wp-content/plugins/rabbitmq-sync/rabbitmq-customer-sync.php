@@ -81,11 +81,20 @@ function rsc_add_admin_menu() {
         'rsc_add_customer',
         'rsc_add_customer_page'
     );
+
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Test RabbitMQ',
+        'Test RabbitMQ',
+        'manage_options',
+        'rsc_test_rabbitmq',
+        'rsc_test_page'
+    );
 }
 add_action('admin_menu', 'rsc_add_admin_menu');
 
 /**
- * Admin page content.
+ * Admin page content for 'Klanten Overzicht'.
  */
 function rsc_admin_page() {
     ?>
@@ -97,6 +106,7 @@ function rsc_admin_page() {
         <div id="rsc-edit-form" style="display: none;">
             <h2>Bewerk Klant</h2>
             <form id="rsc-edit-customer-form" method="post">
+                <?php wp_nonce_field('rsc_save_customer_action', 'rsc_save_customer_nonce'); ?>
                 <input type="hidden" id="rsc-customer-id" name="rsc-customer-id">
                 <label for="rsc-customer-name">Naam:</label>
                 <input type="text" id="rsc-customer-name" name="rsc-customer-name" required>
@@ -151,6 +161,7 @@ function rsc_add_customer_page() {
     <div class="wrap">
         <h1>Voeg Nieuwe Klant Toe</h1>
         <form id="rsc-add-customer-form" method="post">
+            <?php wp_nonce_field('rsc_save_customer_action', 'rsc_save_customer_nonce'); ?>
             <input type="hidden" id="rsc-customer-id" name="rsc-customer-id">
             <label for="rsc-customer-name">Naam:</label>
             <input type="text" id="rsc-customer-name" name="rsc-customer-name" required>
@@ -222,6 +233,11 @@ function rsc_display_customers() {
  * Save customer data and sync with RabbitMQ.
  */
 function rsc_save_customer() {
+    if (!isset($_POST['rsc_save_customer_nonce']) || !wp_verify_nonce($_POST['rsc_save_customer_nonce'], 'rsc_save_customer_action')) {
+        wp_send_json(['success' => false, 'message' => 'Nonce verification failed.']);
+        return;
+    }
+
     global $wpdb;
     $id = isset($_POST['rsc-customer-id']) ? intval($_POST['rsc-customer-id']) : 0;
     $name = sanitize_text_field($_POST['rsc-customer-name']);
@@ -248,6 +264,7 @@ function rsc_save_customer() {
             $channel->queue_declare('customers', false, false, false, false);
             $msg = json_encode(['name' => $name, 'email' => $email]);
             $channel->basic_publish(new AMQPMessage($msg), '', 'customers');
+            
             $channel->close();
             $connection->close();
         } catch (Exception $e) {
@@ -333,4 +350,47 @@ function rsc_deactivate_plugin() {
     $table_name = "{$wpdb->prefix}rsc_customers";
     $wpdb->query("DROP TABLE IF EXISTS $table_name");
 }
+
+/**
+ * Test RabbitMQ connection page.
+ */
+function rsc_test_page() {
+    ?>
+    <div class="wrap">
+        <h1>RabbitMQ Test</h1>
+        <?php echo rsc_test_rabbitmq_connection(); ?>
+    </div>
+    <?php
+}
+
+/**
+ * Test RabbitMQ connection and publish a test message.
+ *
+ * @return string
+ */
+function rsc_test_rabbitmq_connection() {
+    try {
+        // Establish connection
+        $connection = new AMQPStreamConnection('127.0.0.1', 5672, 'guest', 'guest');
+        $channel = $connection->channel();
+
+        // Declare an exchange and a queue
+        $channel->exchange_declare('test_exchange', 'direct', false, false, false);
+        $channel->queue_declare('test_queue', false, false, false, false);
+        $channel->queue_bind('test_queue', 'test_exchange');
+
+        // Publish a test message
+        $msg = new AMQPMessage('Test Message');
+        $channel->basic_publish($msg, 'test_exchange');
+
+        // Close connection
+        $channel->close();
+        $connection->close();
+
+        return 'RabbitMQ connection successful. Test exchange, queue, and message sent.';
+    } catch (Exception $e) {
+        return 'Failed to connect to RabbitMQ: ' . $e->getMessage();
+    }
+}
+?>
 

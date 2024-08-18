@@ -1,77 +1,76 @@
 <?php
 /*
- * Plugin Name: RabbitMQ Integration
- * Description: A plugin to test RabbitMQ integration with WordPress.
- * Version: 1.0
- * Author: Your Name
- */
+Plugin Name: RabbitMQ Customer Sync
+Description: A plugin to manage and synchronize customer data with RabbitMQ.
+Version: 1.1
+Author: Thinh
+*/
 
-require_once __DIR__ . '/vendor/autoload.php'; // Ensure the path is correct
+// Register activation and deactivation hooks
+register_activation_hook(__FILE__, 'rsc_activate_plugin');
+register_deactivation_hook(__FILE__, 'rsc_deactivate_plugin');
 
-use PhpAmqpLib\Connection\AMQPStreamConnection;
-use PhpAmqpLib\Message\AMQPMessage;
+// Include RabbitMQ dependencies
+require_once __DIR__ . '/vendor/autoload.php'; // Ensure this path is correct
 
-/**
- * Test RabbitMQ connection and publish a test message.
- *
- * @return string
- */
-function test_rabbitmq_connection() {
-    try {
-        // Establish connection
-        $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
-        $channel = $connection->channel();
+// Include other files
+require_once __DIR__ . '/admin-pages.php';
+require_once __DIR__ . '/ajax-handlers.php';
+require_once __DIR__ . '/rabbitmq-test.php';
+require_once __DIR__ . '/utils.php';
 
-        // Declare an exchange and a queue
-        $channel->exchange_declare('test_exchange', 'direct', false, false, false);
-        $channel->queue_declare('test_queue', false, false, false, false);
-        $channel->queue_bind('test_queue', 'test_exchange');
-
-        // Publish a test message
-        $msg = new AMQPMessage('Test Message');
-        $channel->basic_publish($msg, 'test_exchange');
-
-        // Close connection
-        $channel->close();
-        $connection->close();
-
-        return 'RabbitMQ connection successful. Test exchange, queue, and message sent.';
-    } catch (Exception $e) {
-        return 'Failed to connect to RabbitMQ: ' . $e->getMessage();
-    }
-}
-
-/**
- * Shortcode to display RabbitMQ test result.
- *
- * @return string
- */
-function rabbitmq_test_shortcode() {
-    return test_rabbitmq_connection();
-}
-add_shortcode('rabbitmq_test', 'rabbitmq_test_shortcode');
-
-/**
- * Add admin menu for RabbitMQ test.
- */
-function rabbitmq_test_admin_page() {
+// Add admin menu
+function rsc_add_admin_menu() {
     add_menu_page(
-        'RabbitMQ Test',
-        'RabbitMQ Test',
+        'Klanten Overzicht',
+        'Klanten Overzicht',
         'manage_options',
-        'rabbitmq-test',
+        'rsc_customer_sync',
+        'rsc_customer_overview_page',
+        'dashicons-admin-users'
+    );
+
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Nieuwe Klant',
+        'Nieuwe Klant',
+        'manage_options',
+        'rsc_add_customer',
+        'rsc_add_customer_page'
+    );
+
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Test RabbitMQ',
+        'Test RabbitMQ',
+        'manage_options',
+        'rsc_test_rabbitmq',
         'rabbitmq_test_admin_page_content'
     );
 }
-add_action('admin_menu', 'rabbitmq_test_admin_page');
+add_action('admin_menu', 'rsc_add_admin_menu');
 
-/**
- * Content for RabbitMQ test admin page.
- */
-function rabbitmq_test_admin_page_content() {
-    echo '<div class="wrap">';
-    echo '<h1>RabbitMQ Test</h1>';
-    echo '<p>' . test_rabbitmq_connection() . '</p>';
-    echo '</div>';
+// Activate plugin
+function rsc_activate_plugin() {
+    global $wpdb;
+    $table_name = "{$wpdb->prefix}rsc_customers";
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        name tinytext NOT NULL,
+        email text NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
 }
 
+// Deactivate plugin
+function rsc_deactivate_plugin() {
+    global $wpdb;
+    $table_name = "{$wpdb->prefix}rsc_customers";
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+?>

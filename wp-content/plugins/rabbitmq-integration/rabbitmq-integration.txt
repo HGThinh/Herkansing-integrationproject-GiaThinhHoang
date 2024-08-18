@@ -1,0 +1,404 @@
+<?php
+/*
+Plugin Name: RabbitMQ Customer Sync
+Description: A plugin to manage and synchronize customer data with RabbitMQ.
+Version: 1.1
+Author: Thinh
+*/
+
+// Register activation and deactivation hooks
+register_activation_hook(__FILE__, 'rsc_activate_plugin');
+register_deactivation_hook(__FILE__, 'rsc_deactivate_plugin');
+
+// Include RabbitMQ dependencies
+require_once __DIR__ . '/vendor/autoload.php'; // Ensure this path is correct
+
+use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib\Message\AMQPMessage;
+
+/**
+ * Get RabbitMQ connection.
+ *
+ * @return AMQPStreamConnection|null
+ */
+function rsc_get_rabbitmq_connection() {
+    try {
+        $connection = new AMQPStreamConnection('127.0.0.1', 5672, 'guest', 'guest');
+        // Check if the connection is open
+        if ($connection->isConnected()) {
+            add_action('admin_notices', 'rsc_rabbitmq_connection_success_notice');
+            return $connection;
+        } else {
+            throw new Exception('Connection failed.');
+        }
+    } catch (Exception $e) {
+        error_log('RabbitMQ Connection Error: ' . $e->getMessage());
+        add_action('admin_notices', 'rsc_rabbitmq_connection_error_notice');
+        return null;
+    }
+}
+
+/**
+ * Display a success notice when RabbitMQ connection is successful.
+ */
+function rsc_rabbitmq_connection_success_notice() {
+    ?>
+    <div class="notice notice-success is-dismissible">
+        <p><?php _e('Successfully connected to RabbitMQ.', 'rsc'); ?></p>
+    </div>
+    <?php
+}
+
+/**
+ * Display an error notice when RabbitMQ connection fails.
+ */
+function rsc_rabbitmq_connection_error_notice() {
+    ?>
+    <div class="notice notice-error is-dismissible">
+        <p><?php _e('Failed to connect to RabbitMQ. Please check the connection settings.', 'rsc'); ?></p>
+    </div>
+    <?php
+}
+
+/**
+ * Add admin menu.
+ */
+function rsc_add_admin_menu() {
+    add_menu_page(
+        'Klanten Overzicht',
+        'Klanten Overzicht',
+        'manage_options',
+        'rsc_customer_sync',
+        'rsc_customer_overview_page',
+        'dashicons-admin-users'
+    );
+
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Nieuwe Klant',
+        'Nieuwe Klant',
+        'manage_options',
+        'rsc_add_customer',
+        'rsc_add_customer_page'
+    );
+
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Test RabbitMQ',
+        'Test RabbitMQ',
+        'manage_options',
+        'rsc_test_rabbitmq',
+        'rabbitmq_test_admin_page_content'
+    );
+}
+add_action('admin_menu', 'rsc_add_admin_menu');
+
+/**
+ * Admin page content for 'Klanten Overzicht'.
+ */
+function rsc_customer_overview_page() {
+    ?>
+    <div class="wrap">
+        <h1>Klanten Overzicht</h1>
+        <div id="rsc-customer-list">
+            <?php rsc_display_customers(); ?>
+        </div>
+        <div id="rsc-edit-form" style="display: none;">
+            <h2>Bewerk Klant</h2>
+            <form id="rsc-edit-customer-form" method="post">
+                <?php wp_nonce_field('rsc_save_customer_action', 'rsc_save_customer_nonce'); ?>
+                <input type="hidden" id="rsc-customer-id" name="rsc-customer-id">
+                <label for="rsc-customer-name">Naam:</label>
+                <input type="text" id="rsc-customer-name" name="rsc-customer-name" required>
+                <label for="rsc-customer-email">E-mail:</label>
+                <input type="email" id="rsc-customer-email" name="rsc-customer-email" required>
+                <input type="submit" value="Opslaan Bewerking">
+                <button type="button" id="rsc-cancel-edit">Annuleer</button>
+            </form>
+        </div>
+        <script>
+            document.addEventListener('click', function(e) {
+                if (e.target && e.target.classList.contains('rsc-edit-button')) {
+                    var id = e.target.getAttribute('data-id');
+                    fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=rsc_get_customer&id=' + id)
+                        .then(response => response.json())
+                        .then(data => {
+                            document.getElementById('rsc-customer-id').value = data.id;
+                            document.getElementById('rsc-customer-name').value = data.name;
+                            document.getElementById('rsc-customer-email').value = data.email;
+                            document.getElementById('rsc-edit-form').style.display = 'block';
+                        });
+                } else if (e.target && e.target.classList.contains('rsc-delete-button')) {
+                    if (confirm('Weet je zeker dat je deze klant wilt verwijderen?')) {
+                        var id = e.target.getAttribute('data-id');
+                        fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=rsc_delete_customer&id=' + id)
+                            .then(response => response.json())
+                            .then(result => {
+                                if (result.success) {
+                                    alert('Klant succesvol verwijderd!');
+                                    location.reload();
+                                } else {
+                                    alert('Fout bij het verwijderen van klant');
+                                }
+                            });
+                    }
+                }
+            });
+
+            document.getElementById('rsc-cancel-edit').addEventListener('click', function() {
+                document.getElementById('rsc-edit-form').style.display = 'none';
+            });
+        </script>
+    </div>
+    <?php
+}
+
+/**
+ * Content for the 'Nieuwe Klant' submenu page.
+ */
+function rsc_add_customer_page() {
+    ?>
+    <div class="wrap">
+        <h1>Voeg Nieuwe Klant Toe</h1>
+        <form id="rsc-add-customer-form" method="post">
+            <?php wp_nonce_field('rsc_save_customer_action', 'rsc_save_customer_nonce'); ?>
+            <input type="hidden" id="rsc-customer-id" name="rsc-customer-id">
+            <label for="rsc-customer-name">Naam:</label>
+            <input type="text" id="rsc-customer-name" name="rsc-customer-name" required>
+            <label for="rsc-customer-email">E-mail:</label>
+            <input type="email" id="rsc-customer-email" name="rsc-customer-email" required>
+            <input type="submit" value="Opslaan Klant">
+        </form>
+        <div id="rsc-message" style="display: none;"></div>
+        <script>
+            document.getElementById('rsc-add-customer-form').addEventListener('submit', function(e) {
+                e.preventDefault();
+                var form = this;
+                var data = new FormData(form);
+                fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=rsc_save_customer', {
+                    method: 'POST',
+                    body: data
+                }).then(response => response.json()).then(result => {
+                    var messageDiv = document.getElementById('rsc-message');
+                    if (result.success) {
+                        messageDiv.textContent = 'Klant succesvol toegevoegd!';
+                        messageDiv.style.color = 'green';
+                        messageDiv.style.display = 'block';
+                        form.reset();
+                    } else {
+                        messageDiv.textContent = 'Fout bij het toevoegen van klant';
+                        messageDiv.style.color = 'red';
+                        messageDiv.style.display = 'block';
+                    }
+                    setTimeout(() => {
+                        messageDiv.style.display = 'none';
+                    }, 5000);
+                }).catch(() => {
+                    var messageDiv = document.getElementById('rsc-message');
+                    messageDiv.textContent = 'Netwerkfout, probeer het opnieuw.';
+                    messageDiv.style.color = 'red';
+                    messageDiv.style.display = 'block';
+                    setTimeout(() => {
+                        messageDiv.style.display = 'none';
+                    }, 5000);
+                });
+            });
+        </script>
+    </div>
+    <?php
+}
+
+/**
+ * Display customers.
+ */
+function rsc_display_customers() {
+    global $wpdb;
+    $customers = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}rsc_customers");
+    if ($customers) {
+        echo '<table><tr><th>Naam</th><th>E-mail</th><th>Acties</th></tr>';
+        foreach ($customers as $customer) {
+            echo '<tr>';
+            echo '<td>' . esc_html($customer->name) . '</td>';
+            echo '<td>' . esc_html($customer->email) . '</td>';
+            echo '<td><button class="rsc-edit-button" data-id="' . esc_attr($customer->id) . '">Bewerk</button> <button class="rsc-delete-button" data-id="' . esc_attr($customer->id) . '">Verwijder</button></td>';
+            echo '</tr>';
+        }
+        echo '</table>';
+    } else {
+        echo '<p>Geen klanten gevonden.</p>';
+    }
+}
+
+/**
+ * Save customer data and sync with RabbitMQ.
+ */
+function rsc_save_customer() {
+    if (!isset($_POST['rsc_save_customer_nonce']) || !wp_verify_nonce($_POST['rsc_save_customer_nonce'], 'rsc_save_customer_action')) {
+        wp_send_json(['success' => false, 'message' => 'Nonce verification failed.']);
+        return;
+    }
+
+    global $wpdb;
+    $id = isset($_POST['rsc-customer-id']) ? intval($_POST['rsc-customer-id']) : 0;
+    $name = sanitize_text_field($_POST['rsc-customer-name']);
+    $email = sanitize_email($_POST['rsc-customer-email']);
+    
+    if (empty($name) || empty($email)) {
+        wp_send_json(['success' => false, 'message' => 'Please fill in all fields.']);
+        return;
+    }
+
+    if (!is_email($email)) {
+        wp_send_json(['success' => false, 'message' => 'Please enter a valid email address.']);
+        return;
+    }
+
+    if ($id > 0) {
+        $wpdb->update(
+            "{$wpdb->prefix}rsc_customers",
+            ['name' => $name, 'email' => $email],
+            ['id' => $id]
+        );
+    } else {
+        $wpdb->insert(
+            "{$wpdb->prefix}rsc_customers",
+            ['name' => $name, 'email' => $email]
+        );
+    }
+
+    // Sync with RabbitMQ
+    $connection = rsc_get_rabbitmq_connection();
+    if ($connection) {
+        try {
+            $channel = $connection->channel();
+            $channel->queue_declare('customers', false, false, false, false);
+            $msg = json_encode(['name' => $name, 'email' => $email]);
+            $channel->basic_publish(new AMQPMessage($msg), '', 'customers');
+            
+            $channel->close();
+            $connection->close();
+        } catch (Exception $e) {
+            error_log('RabbitMQ Publishing Error: ' . $e->getMessage());
+            wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
+            return;
+        }
+    } else {
+        wp_send_json(['success' => false, 'message' => 'Failed to connect to RabbitMQ.']);
+        return;
+    }
+
+    wp_send_json([
+        'success' => true,
+        'customers' => rsc_get_customers_html()
+    ]);
+}
+add_action('wp_ajax_rsc_save_customer', 'rsc_save_customer');
+
+/**
+ * Get customer data.
+ */
+function rsc_get_customer() {
+    global $wpdb;
+    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    if ($id > 0) {
+        $customer = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}rsc_customers WHERE id = %d", $id));
+        wp_send_json($customer);
+    }
+    wp_send_json(null);
+}
+add_action('wp_ajax_rsc_get_customer', 'rsc_get_customer');
+
+/**
+ * Delete customer.
+ */
+function rsc_delete_customer() {
+    global $wpdb;
+    $id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    if ($id > 0) {
+        $deleted = $wpdb->delete("{$wpdb->prefix}rsc_customers", ['id' => $id]);
+        if ($deleted) {
+            wp_send_json(['success' => true]);
+        }
+    }
+    wp_send_json(['success' => false]);
+}
+add_action('wp_ajax_rsc_delete_customer', 'rsc_delete_customer');
+
+/**
+ * Get customers HTML table.
+ */
+function rsc_get_customers_html() {
+    ob_start();
+    rsc_display_customers();
+    return ob_get_clean();
+}
+
+/**
+ * Activate plugin.
+ */
+function rsc_activate_plugin() {
+    global $wpdb;
+    $table_name = "{$wpdb->prefix}rsc_customers";
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE $table_name (
+        id mediumint(9) NOT NULL AUTO_INCREMENT,
+        name tinytext NOT NULL,
+        email text NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+}
+
+/**
+ * Deactivate plugin.
+ */
+function rsc_deactivate_plugin() {
+    global $wpdb;
+    $table_name = "{$wpdb->prefix}rsc_customers";
+    $wpdb->query("DROP TABLE IF EXISTS $table_name");
+}
+
+/**
+ * Test RabbitMQ connection page.
+ */
+function rabbitmq_test_admin_page_content() {
+    echo '<div class="wrap">';
+    echo '<h1>RabbitMQ Test</h1>';
+    echo '<p>' . test_rabbitmq_connection() . '</p>';
+    echo '</div>';
+}
+
+/**
+ * Test RabbitMQ connection and publish a test message.
+ *
+ * @return string
+ */
+function test_rabbitmq_connection() {
+    try {
+        // Establish connection
+        $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
+        $channel = $connection->channel();
+
+        // Declare an exchange and a queue
+        $channel->exchange_declare('test_exchange', 'direct', false, false, false);
+        $channel->queue_declare('test_queue', false, false, false, false);
+        $channel->queue_bind('test_queue', 'test_exchange');
+
+        // Publish a test message
+        $msg = new AMQPMessage('Test Message');
+        $channel->basic_publish($msg, 'test_exchange');
+
+        // Close connection
+        $channel->close();
+        $connection->close();
+
+        return 'RabbitMQ connection successful. Test exchange, queue, and message sent.';
+    } catch (Exception $e) {
+        return 'Failed to connect to RabbitMQ: ' . $e->getMessage();
+    }
+}
+?>
+
