@@ -54,6 +54,26 @@ function rsc_customer_overview_page() {
             document.getElementById('rsc-cancel-edit').addEventListener('click', function() {
                 document.getElementById('rsc-edit-form').style.display = 'none';
             });
+
+            document.getElementById('rsc-edit-customer-form').addEventListener('submit', function(e) {
+                e.preventDefault(); // Prevent the default form submission
+
+                var formData = new FormData(this);
+
+                fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=rsc_save_customer', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        alert(result.message);
+                        location.reload(); // Reload the page to reflect changes
+                    } else {
+                        alert(result.message);
+                    }
+                });
+            });
         </script>
     </div>
     <?php
