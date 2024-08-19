@@ -1,7 +1,4 @@
 <?php
-use PhpAmqpLib\Connection\AMQPStreamConnection;
-use PhpAmqpLib\Message\AMQPMessage;
-
 /**
  * Save or update customer data.
  */
@@ -41,22 +38,16 @@ function rsc_save_customer() {
     }
 
     // Sync with RabbitMQ
-    $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
+    $connection = rsc_get_rabbitmq_connection();
     if ($connection) {
         try {
             $channel = $connection->channel();
-            $channel->exchange_declare('test_exchange', 'direct', false, false, false);
-            $channel->queue_declare('customers', false, true, false, false);
+            $channel->queue_declare('customers', false, false, false, false);
             $msg = json_encode(['name' => $name, 'email' => $email]);
-            $channel->queue_bind('customers', 'test_exchange');
+            $channel->basic_publish(new AMQPMessage($msg), '', 'customers');
             
-            // Publish a test message
-        $msg = new AMQPMessage('Test Message');
-        $channel->basic_publish($msg, 'test_exchange');
-        
             $channel->close();
             $connection->close();
-            return 'RabbitMQ connection successful. Test exchange, queue, and message sent.';
         } catch (Exception $e) {
             error_log('RabbitMQ Publishing Error: ' . $e->getMessage());
             wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
