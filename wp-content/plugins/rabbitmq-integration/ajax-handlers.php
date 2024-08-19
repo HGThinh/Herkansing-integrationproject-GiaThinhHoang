@@ -47,16 +47,21 @@ function rsc_save_customer() {
             $channel = $connection->channel();
             $channel->exchange_declare('test_exchange', 'direct', false, false, false);
             $channel->queue_declare('customers', false, true, false, false);
-            $msg = json_encode(['name' => $name, 'email' => $email]);
             $channel->queue_bind('customers', 'test_exchange');
-            
-            // Publish a test message
-        $msg = new AMQPMessage('Test Message');
-        $channel->basic_publish($msg, 'test_exchange');
-        
+
+            // Convert customer data to XML format
+            $xml_data = "<customer><name>{$name}</name><email>{$email}</email></customer>";
+
+            // Create the RabbitMQ message with the XML data
+            $msg = new AMQPMessage($xml_data);
+            $channel->basic_publish($msg, 'test_exchange');
+
             $channel->close();
             $connection->close();
-            return 'RabbitMQ connection successful. Test exchange, queue, and message sent.';
+
+            wp_send_json(['success' => true, 'message' => 'Customer data synced with RabbitMQ.']);
+            return;
+
         } catch (Exception $e) {
             error_log('RabbitMQ Publishing Error: ' . $e->getMessage());
             wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
@@ -97,10 +102,37 @@ function rsc_delete_customer() {
     if ($id > 0) {
         $deleted = $wpdb->delete("{$wpdb->prefix}rsc_customers", ['id' => $id]);
         if ($deleted) {
-            wp_send_json(['success' => true]);
+            // Sync with RabbitMQ - customers_delete queue
+            $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
+            if ($connection) {
+                try {
+                    $channel = $connection->channel();
+                    $channel->exchange_declare('delete_exchange', 'direct', false, false, false);
+                    $channel->queue_declare('customers_delete', false, true, false, false);
+                    $channel->queue_bind('customers_delete', 'delete_exchange');
+
+                    // Create the RabbitMQ message with the customer ID
+                    $msg = new AMQPMessage("<customer><id>{$id}</id></customer>");
+                    $channel->basic_publish($msg, 'delete_exchange');
+
+                    $channel->close();
+                    $connection->close();
+
+                    wp_send_json(['success' => true, 'message' => 'Customer deleted and synced with RabbitMQ.']);
+                    return;
+                } catch (Exception $e) {
+                    error_log('RabbitMQ Publishing Error: ' . $e->getMessage());
+                    wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
+                    return;
+                }
+            } else {
+                wp_send_json(['success' => false, 'message' => 'Failed to connect to RabbitMQ.']);
+                return;
+            }
         }
     }
     wp_send_json(['success' => false]);
 }
 add_action('wp_ajax_rsc_delete_customer', 'rsc_delete_customer');
 ?>
+
