@@ -125,4 +125,164 @@ function rsc_add_customer_page() {
     </div>
     <?php
 }
+
+function rsc_add_product_page() {
+    ?>
+    <div class="wrap">
+        <h1>Nieuwe Product</h1>
+        <form id="rsc-product-form">
+            <?php wp_nonce_field('rsc_save_product_action', 'rsc_save_product_nonce'); ?>
+
+            <input type="hidden" id="rsc-product-id" name="rsc-product-id" value="0" />
+
+            <table class="form-table">
+                <tr>
+                    <th scope="row"><label for="rsc-product-name">Name</label></th>
+                    <td><input name="rsc-product-name" id="rsc-product-name" type="text" class="regular-text" required /></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="rsc-product-list-price">List Price</label></th>
+                    <td><input name="rsc-product-list-price" id="rsc-product-list-price" type="number" step="0.01" class="regular-text" required /></td>
+                </tr>
+            </table>
+
+            <p class="submit">
+                <button type="button" id="rsc-save-product" class="button button-primary">Save Product</button>
+            </p>
+        </form>
+
+        <script>
+        jQuery(document).ready(function($) {
+            $('#rsc-save-product').click(function() {
+                var formData = $('#rsc-product-form').serialize();
+                $.post(ajaxurl, formData + '&action=rsc_save_product', function(response) {
+                    alert(response.message);
+                }, 'json');
+            });
+        });
+        </script>
+    </div>
+    <?php
+}
+
+
+
+
+function rsc_product_list_page() {
+    global $wpdb;
+    $table_name = "{$wpdb->prefix}rsc_products";
+
+    // Retrieve products
+    $products = $wpdb->get_results("SELECT * FROM $table_name");
+
+    if (is_wp_error($products)) {
+        echo '<p>Error fetching products: ' . $products->get_error_message() . '</p>';
+        return;
+    }
+
+    ?>
+    <div class="wrap">
+        <h1>Product Lijst</h1>
+        <table class="wp-list-table widefat fixed striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>List Price</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($products)) : ?>
+                    <tr>
+                        <td colspan="4">No products found.</td>
+                    </tr>
+                <?php else : ?>
+                    <?php foreach ($products as $product) : ?>
+                        <tr>
+                            <td><?php echo esc_html($product->id); ?></td>
+                            <td><?php echo esc_html($product->name); ?></td>
+                            <td><?php echo esc_html($product->list_price); ?></td>
+                            <td>
+                                <button class="button rsc-edit-product" data-id="<?php echo esc_attr($product->id); ?>">Bewerk</button>
+                                <button class="button rsc-delete-product" data-id="<?php echo esc_attr($product->id); ?>">Verwijder</button>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
+
+        <div id="rsc-edit-form" style="display:none;">
+            <h2>Edit Product</h2>
+            <form id="rsc-product-edit-form">
+                <?php wp_nonce_field('rsc_save_product_action', 'rsc_save_product_nonce'); ?>
+
+                <input type="hidden" id="rsc-edit-product-id" name="rsc-product-id" value="0" />
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="rsc-edit-product-name">Name</label></th>
+                        <td><input name="rsc-edit-product-name" id="rsc-edit-product-name" type="text" class="regular-text" required /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="rsc-edit-product-list-price">List Price</label></th>
+                        <td><input name="rsc-edit-product-list-price" id="rsc-edit-product-list-price" type="number" step="0.01" class="regular-text" required /></td>
+                    </tr>
+                </table>
+
+                <p class="submit">
+                    <button type="button" id="rsc-save-edited-product" class="button button-primary">Save Changes</button>
+                </p>
+            </form>
+        </div>
+
+        <script>
+        jQuery(document).ready(function($) {
+            $('.rsc-edit-product').click(function() {
+                var productId = $(this).data('id');
+                $.get(ajaxurl, { action: 'rsc_get_product', id: productId, _wpnonce: '<?php echo wp_create_nonce('rsc_get_product_action'); ?>' }, function(response) {
+                    if (response.success) {
+                        $('#rsc-edit-product-id').val(response.data.id);
+                        $('#rsc-edit-product-name').val(response.data.name);
+                        $('#rsc-edit-product-list-price').val(response.data.list_price);
+                        $('#rsc-edit-form').show();
+                    } else {
+                        alert(response.message);
+                    }
+                }, 'json');
+            });
+
+            $('#rsc-save-edited-product').click(function() {
+                var formData = $('#rsc-product-edit-form').serialize();
+                $.post(ajaxurl, formData + '&action=rsc_save_product', function(response) {
+                    alert(response.message);
+                    if (response.success) {
+                        location.reload();
+                    }
+                }, 'json');
+            });
+
+            $('.rsc-delete-product').click(function() {
+                var productId = $(this).data('id');
+                if (confirm('Are you sure you want to delete this product?')) {
+                    $.post(ajaxurl, {
+                        action: 'rsc_delete_product',
+                        id: productId,
+                        rsc_delete_product_nonce: '<?php echo wp_create_nonce('rsc_delete_product_action'); ?>'
+                    }, function(response) {
+                        alert(response.message);
+                        if (response.success) {
+                            location.reload();
+                        }
+                    }, 'json');
+                }
+            });
+        });
+        </script>
+    </div>
+    <?php
+}
+
+
 ?>

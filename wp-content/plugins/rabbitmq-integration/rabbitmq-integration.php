@@ -38,7 +38,27 @@ function rsc_add_admin_menu() {
         'rsc_add_customer',
         'rsc_add_customer_page'
     );
+    
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Product Lijst',
+        'Product Lijst',
+        'manage_options',
+        'rsc_product_list',
+        'rsc_product_list_page'
+    );
+   
 
+	
+    add_submenu_page(
+        'rsc_customer_sync',
+        'Nieuwe Product',
+        'Nieuwe Product',
+        'manage_options',
+        'rsc_add_product',
+        'rsc_add_product_page' // Function to display the product management page
+    );
+   
     add_submenu_page(
         'rsc_customer_sync',
         'Test RabbitMQ',
@@ -47,6 +67,7 @@ function rsc_add_admin_menu() {
         'rsc_test_rabbitmq',
         'rabbitmq_test_admin_page_content'
     );
+    
 }
 add_action('admin_menu', 'rsc_add_admin_menu');
 

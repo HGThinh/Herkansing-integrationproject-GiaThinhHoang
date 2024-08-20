@@ -108,8 +108,8 @@ function rsc_delete_customer() {
                 try {
                     $channel = $connection->channel();
                     $channel->exchange_declare('delete_exchange', 'direct', false, false, false);
-                    $channel->queue_declare('customers_delete', false, true, false, false);
-                    $channel->queue_bind('customers_delete', 'delete_exchange');
+                    $channel->queue_declare('customers_delete_to_odoo', false, true, false, false);
+                    $channel->queue_bind('customers_delete_to_odoo', 'delete_exchange');
 
                     // Create the RabbitMQ message with the customer ID
                     $msg = new AMQPMessage("<customer><id>{$id}</id></customer>");
@@ -134,5 +134,152 @@ function rsc_delete_customer() {
     wp_send_json(['success' => false]);
 }
 add_action('wp_ajax_rsc_delete_customer', 'rsc_delete_customer');
+
+
+
+/**
+ * Save or update product data.
+ */
+function rsc_save_product() {
+    if (!isset($_POST['rsc_save_product_nonce']) || !wp_verify_nonce($_POST['rsc_save_product_nonce'], 'rsc_save_product_action')) {
+        wp_send_json(['success' => false, 'message' => 'Nonce verification failed.']);
+        return;
+    }
+
+    global $wpdb;
+    $id = isset($_POST['rsc-product-id']) ? intval($_POST['rsc-product-id']) : 0;
+    $name = sanitize_text_field($_POST['rsc-product-name']);
+    $list_price = floatval($_POST['rsc-product-list-price']);
+    
+    if (empty($name) || $list_price < 0) {
+        wp_send_json(['success' => false, 'message' => 'Please fill in all fields correctly.']);
+        return;
+    }
+
+    try {
+        $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
+        $channel = $connection->channel();
+
+        if ($id > 0) {
+            $result = $wpdb->update(
+                "{$wpdb->prefix}rsc_products",
+                ['name' => $name, 'list_price' => $list_price],
+                ['id' => $id]
+            );
+
+            if ($result === false) {
+                wp_send_json(['success' => false, 'message' => 'Failed to update product in database.']);
+                return;
+            }
+
+            $exchange = 'update_product_exchange';
+        } else {
+            $result = $wpdb->insert(
+                "{$wpdb->prefix}rsc_products",
+                ['name' => $name, 'list_price' => $list_price]
+            );
+
+            if ($result === false) {
+                wp_send_json(['success' => false, 'message' => 'Failed to insert product into database.']);
+                return;
+            }
+
+            $exchange = 'add_product_exchange';
+        }
+
+        $xml_data = "<product><id>{$id}</id><name>{$name}</name><list_price>{$list_price}</list_price></product>";
+        $msg = new AMQPMessage($xml_data);
+        $channel->exchange_declare($exchange, 'direct', false, false, false);
+        $channel->queue_declare('products_to_odoo', false, true, false, false);
+        $channel->queue_bind('products_to_odoo', $exchange);
+        $channel->basic_publish($msg, $exchange);
+
+        $channel->close();
+        $connection->close();
+
+        wp_send_json(['success' => true, 'message' => 'Product data saved and synced with RabbitMQ.']);
+    } catch (Exception $e) {
+        error_log('RabbitMQ Error: ' . $e->getMessage());
+        wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
+    }
+}
+
+add_action('wp_ajax_rsc_save_product', 'rsc_save_product');
+
+/**
+ * Delete product.
+ */
+function rsc_delete_product() {
+    if (!isset($_POST['rsc_delete_product_nonce']) || !wp_verify_nonce($_POST['rsc_delete_product_nonce'], 'rsc_delete_product_action')) {
+        wp_send_json(['success' => false, 'message' => 'Nonce verification failed.']);
+        return;
+    }
+
+    global $wpdb;
+    $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+
+    if ($id <= 0) {
+        wp_send_json(['success' => false, 'message' => 'Invalid product ID.']);
+        return;
+    }
+
+    try {
+        $connection = new AMQPStreamConnection('rabbitmq', 5672, 'guest', 'guest');
+        $channel = $connection->channel();
+
+        $result = $wpdb->delete("{$wpdb->prefix}rsc_products", ['id' => $id]);
+
+        if ($result === false) {
+            wp_send_json(['success' => false, 'message' => 'Failed to delete product from database.']);
+            return;
+        }
+
+        $xml_data = "<product><id>{$id}</id></product>";
+        $msg = new AMQPMessage($xml_data);
+        $channel->exchange_declare('delete_product_exchange', 'direct', false, false, false);
+        $channel->queue_declare('products_delete_to_odoo', false, true, false, false);
+        $channel->queue_bind('products_delete_to_odoo', 'delete_product_exchange');
+        $channel->basic_publish($msg, 'delete_product_exchange');
+
+        $channel->close();
+        $connection->close();
+
+        wp_send_json(['success' => true, 'message' => 'Product deleted and message sent to RabbitMQ.']);
+    } catch (Exception $e) {
+        error_log('RabbitMQ Error: ' . $e->getMessage());
+        wp_send_json(['success' => false, 'message' => 'Error syncing with RabbitMQ.']);
+    }
+}
+
+add_action('wp_ajax_rsc_delete_product', 'rsc_delete_product');
+
+/**
+ * Get product.
+ */
+function rsc_get_product() {
+    if (!isset($_GET['id']) || !wp_verify_nonce($_GET['_wpnonce'], 'rsc_get_product_action')) {
+        wp_send_json(['success' => false, 'message' => 'Nonce verification failed.']);
+        return;
+    }
+
+    global $wpdb;
+    $id = intval($_GET['id']);
+
+    if ($id <= 0) {
+        wp_send_json(['success' => false, 'message' => 'Invalid product ID.']);
+        return;
+    }
+
+    $product = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}rsc_products WHERE id = %d", $id));
+
+    if ($product) {
+        wp_send_json(['success' => true, 'data' => $product]);
+    } else {
+        wp_send_json(['success' => false, 'message' => 'Product not found.']);
+    }
+}
+
+add_action('wp_ajax_rsc_get_product', 'rsc_get_product');
+
 ?>
 
