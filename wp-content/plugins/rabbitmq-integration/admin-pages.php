@@ -137,7 +137,7 @@ function rsc_add_product_page() {
 
             <table class="form-table">
                 <tr>
-                    <th scope="row"><label for="rsc-product-name">Name</label></th>
+                    <th scope="row"><label for="rsc-product-name">Naam</label></th>
                     <td><input name="rsc-product-name" id="rsc-product-name" type="text" class="regular-text" required /></td>
                 </tr>
                 <tr>
@@ -147,7 +147,7 @@ function rsc_add_product_page() {
             </table>
 
             <p class="submit">
-                <button type="button" id="rsc-save-product" class="button button-primary">Save Product</button>
+                <button type="button" id="rsc-save-product" class="button button-primary">Product Opslaan</button>
             </p>
         </form>
 
@@ -187,9 +187,9 @@ function rsc_product_list_page() {
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>Name</th>
+                    <th>Naam</th>
                     <th>List Price</th>
-                    <th>Actions</th>
+                    <th>Acties</th>
                 </tr>
             </thead>
             <tbody>
@@ -214,7 +214,7 @@ function rsc_product_list_page() {
         </table>
 
         <div id="rsc-edit-form" style="display:none;">
-            <h2>Edit Product</h2>
+            <h2>Product Bewerk</h2>
             <form id="rsc-product-edit-form">
                 <?php wp_nonce_field('rsc_save_product_action', 'rsc_save_product_nonce'); ?>
 
@@ -222,7 +222,7 @@ function rsc_product_list_page() {
 
                 <table class="form-table">
                     <tr>
-                        <th scope="row"><label for="rsc-edit-product-name">Name</label></th>
+                        <th scope="row"><label for="rsc-edit-product-name">Naam</label></th>
                         <td><input name="rsc-edit-product-name" id="rsc-edit-product-name" type="text" class="regular-text" required /></td>
                     </tr>
                     <tr>
@@ -232,7 +232,7 @@ function rsc_product_list_page() {
                 </table>
 
                 <p class="submit">
-                    <button type="button" id="rsc-save-edited-product" class="button button-primary">Save Changes</button>
+                    <button type="button" id="rsc-save-edited-product" class="button button-primary">Opslaan Bewerking</button>
                 </p>
             </form>
         </div>

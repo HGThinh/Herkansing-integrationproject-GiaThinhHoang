@@ -190,8 +190,8 @@ function rsc_save_product() {
         $xml_data = "<product><id>{$id}</id><name>{$name}</name><list_price>{$list_price}</list_price></product>";
         $msg = new AMQPMessage($xml_data);
         $channel->exchange_declare($exchange, 'direct', false, false, false);
-        $channel->queue_declare('products_to_odoo', false, true, false, false);
-        $channel->queue_bind('products_to_odoo', $exchange);
+        $channel->queue_declare('products_add_to_odoo', false, true, false, false);
+        $channel->queue_bind('products_add_to_odoo', $exchange);
         $channel->basic_publish($msg, $exchange);
 
         $channel->close();
